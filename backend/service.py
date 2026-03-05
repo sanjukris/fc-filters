@@ -22,8 +22,20 @@ STOP_WORDS = {
     "with",
     "by",
 }
+QUERY_SKIP_WORDS = {
+    "looking",
+    "look",
+    "find",
+    "search",
+    "need",
+    "want",
+    "show",
+    "me",
+    "please",
+    "a",
+}
 TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
-MIN_SCORE = 60.0
+FINAL_SCORE_THRESHOLD = 80.0
 MIN_TOKEN_COVERAGE = 0.34
 logger = logging.getLogger(__name__)
 
@@ -76,6 +88,20 @@ def normalize_text(text: str) -> str:
     return normalized
 
 
+def normalize_query_text(query: str) -> str:
+    base_normalized = normalize_text(query)
+    query_tokens = base_normalized.split()
+    filtered_tokens = [token for token in query_tokens if token not in QUERY_SKIP_WORDS]
+    normalized_query = " ".join(filtered_tokens)
+    logger.debug(
+        "normalize_query_text input=%r base_normalized=%r normalized_query=%r",
+        query,
+        base_normalized,
+        normalized_query,
+    )
+    return normalized_query
+
+
 def load_filter_options(data_dir: Path) -> list[FilterOption]:
     logger.info("Loading filter options from data_dir=%s", data_dir)
     options: list[FilterOption] = []
@@ -117,7 +143,7 @@ def token_coverage_score(query_tokens: list[str], candidate_tokens: list[str]) -
 
 
 def rank_matches(query: str, options: list[FilterOption]) -> list[MatchResult]:
-    normalized_query = normalize_text(query)
+    normalized_query = normalize_query_text(query)
     if not normalized_query:
         logger.info("rank_matches empty_query query=%r", query)
         return []
@@ -165,7 +191,7 @@ def rank_matches(query: str, options: list[FilterOption]) -> list[MatchResult]:
             number_penalty = -25.0
             number_penalties += 1
 
-        if weighted_score >= MIN_SCORE:
+        if weighted_score >= FINAL_SCORE_THRESHOLD:
             scored.append(
                 MatchResult(
                     option=option,
@@ -192,12 +218,13 @@ def rank_matches(query: str, options: list[FilterOption]) -> list[MatchResult]:
     top_displays = [match.to_dict()["display"] for match in scored[:5]]
     logger.info(
         "rank_matches done query=%r matches=%s skipped_low_coverage=%s skipped_low_score=%s "
-        "number_penalties=%s top5=%s",
+        "number_penalties=%s threshold=%.2f top5=%s",
         query,
         len(scored),
         skipped_low_coverage,
         skipped_low_score,
         number_penalties,
+        FINAL_SCORE_THRESHOLD,
         top_displays,
     )
     return scored
